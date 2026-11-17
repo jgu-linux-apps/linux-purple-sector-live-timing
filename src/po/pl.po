@@ -438,3 +438,9 @@ msgstr "Zainstalowano wersję %s – wyloguj się, aby ją wczytać"
 #: lib/indicator.js
 msgid "Quit"
 msgstr "Zakończ"
+
+msgid "Fastest sectors"
+msgstr "Najszybsze sektory"
+
+msgid "Ideal lap"
+msgstr "Idealne okrążenie"

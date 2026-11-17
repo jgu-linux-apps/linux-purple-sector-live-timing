@@ -3,6 +3,8 @@
 // Pure functions: the translation function is passed in, so the module
 // can be tested outside GNOME Shell.
 
+import {lapSeconds} from './state.js';
+
 export function sprintf(template, ...args) {
     let i = 0;
     return template.replace(/%[sd]/g, () => String(args[i++] ?? ''));
@@ -202,6 +204,27 @@ function columns(snap, _) {
     return {main: [_('Time'), _('Gap')], ext: [_('Tyre'), _('Last'), _('Laps')]};
 }
 
+/** Fastest driver per sector plus the ideal lap (sum of the three), or null. */
+function sectors(snap) {
+    const list = snap.bestSectors ?? [];
+    if (!list.some(Boolean))
+        return null;
+    const items = [0, 1, 2].map(i => ({
+        name: `S${i + 1}`,
+        tla: list[i]?.tla ?? '—',
+        colour: list[i]?.colour ?? '',
+        time: list[i]?.time ?? '',
+    }));
+    let ideal = '';
+    if (list.every(Boolean)) {
+        const sum = list.reduce((a, b) => a + lapSeconds(b.time), 0);
+        const min = Math.floor(sum / 60);
+        const sec = (sum - min * 60).toFixed(3).padStart(6, '0');
+        ideal = min ? `${min}:${sec}` : Number(sec).toFixed(3);
+    }
+    return {items, ideal};
+}
+
 function panelItems(snap, opts) {
     const count = Math.max(0, Math.min(3, opts.panelDrivers | 0));
     return snap.rows.slice(0, count).map((r, i) => ({
@@ -243,6 +266,7 @@ export function build(snap, opts, _) {
         panel: {chip: panelChip(snap, opts, _), items: panelItems(snap, opts)},
         columns: columns(snap, _),
         sections: sections(snap, _),
+        sectors: sectors(snap),
         footer,
     };
 }

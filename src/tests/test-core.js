@@ -153,6 +153,30 @@ function quali(part) {
 
 check('normGap', normGap('1L') === '+1L' && normGap('LAP 3') === '' && normGap('1.204') === '+1.204');
 
+// --- fastest sectors
+{
+    const st = new SessionState();
+    st.applySnapshot({
+        SessionInfo: {Type: 'Race', Name: 'Race'},
+        DriverList: {1: {Tla: 'AAA', TeamColour: '111111'}, 2: {Tla: 'BBB', TeamColour: '222222'}},
+        TimingData: {Lines: {
+            1: {Position: '1', Sectors: [{Value: '23.500'}, {Value: '31.000'}, {Value: ''}]},
+            2: {Position: '2', Sectors: [{Value: '23.400'}, {Value: '31.200'}, {Value: ''}]},
+        }},
+        TimingStats: {Lines: {1: {BestSectors: [{Value: '23.450'}, {Value: '30.900'}, {Value: '18.100'}]}}},
+    });
+    let m = build(st.snapshot(), opts(), _);
+    check('sector holders', eq(m.sectors.items.map(i => `${i.tla} ${i.time}`),
+        ['BBB 23.400', 'AAA 30.900', 'AAA 18.100']), JSON.stringify(m.sectors));
+    check('ideal lap', m.sectors.ideal === '1:12.400', m.sectors.ideal);
+    st.apply('TimingStats', {Lines: {2: {BestSectors: {2: {Value: '17.999'}}}}});
+    m = build(st.snapshot(), opts(), _);
+    check('sector delta', m.sectors.items[2].tla === 'BBB' && m.sectors.ideal === '1:12.299', JSON.stringify(m.sectors));
+    const empty = new SessionState();
+    empty.applySnapshot({SessionInfo: {Type: 'Race'}, TimingData: {Lines: {1: {Position: '1'}}}});
+    check('no sectors', build(empty.snapshot(), opts(), _).sectors === null);
+}
+
 if (failures) {
     print(`${failures} FAILED`);
     System.exit(1);

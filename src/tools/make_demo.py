@@ -38,6 +38,21 @@ GRID = [  # fictional drivers and teams – demo only
 GRID_POS = [2, 1, 4, 3, 7, 5, 6, 11, 9, 8, 12, 10, 17, 14, 13, 18, 15, 16, 20, 19, 22, 21]
 
 
+SECTOR_SHARE = (0.31, 0.42, 0.27)
+srng = random.Random(11)   # separate stream: sectors do not change the rest of the demo
+
+
+def split_sectors(lap_time):
+    """Three sector times adding up to lap_time."""
+    a = lap_time * SECTOR_SHARE[0] + srng.uniform(-0.15, 0.15)
+    b = lap_time * SECTOR_SHARE[1] + srng.uniform(-0.15, 0.15)
+    return [round(a, 3), round(b, 3), round(lap_time - round(a, 3) - round(b, 3), 3)]
+
+
+def fmt_sector(sec):
+    return f"{sec:.3f}"
+
+
 def fmt_lap(sec):
     return f"{int(sec // 60)}:{sec % 60:06.3f}"
 
@@ -57,6 +72,7 @@ def main():
     best = {g[0]: 73.4 + random.random() * 1.3 for g in GRID}
     tyre_age = {g[0]: 10 + random.randint(0, 15) for g in GRID}
 
+    best_sec = {g[0]: split_sectors(best[g[0]]) for g in GRID}
     lines = {}
     for i, num in enumerate(order):
         lines[num] = {
@@ -65,6 +81,7 @@ def main():
             "IntervalToPositionAhead": {"Value": "" if i == 0 else f"+{gaps[num] - gaps[order[i - 1]]:.3f}"},
             "BestLapTime": {"Value": fmt_lap(best[num])},
             "LastLapTime": {"Value": fmt_lap(best[num] + 0.4), "PersonalFastest": False},
+            "Sectors": [{"Value": fmt_sector(v)} for v in split_sectors(best[num] + 0.4)],
             "NumberOfPitStops": 1, "InPit": False, "Retired": False, "Stopped": False, "NumberOfLaps": lap,
         }
     snapshot = {
@@ -78,6 +95,8 @@ def main():
                               "TeamName": g[4], "TeamColour": g[5], "Line": i + 1}
                        for i, g in enumerate(GRID)},
         "TimingData": {"Lines": lines},
+        "TimingStats": {"Lines": {n: {"BestSectors": [{"Value": fmt_sector(v)} for v in best_sec[n]]}
+                                  for n in order}},
         "TimingAppData": {"Lines": {g[0]: {"GridPos": str(GRID_POS[i]),
                                            "Stints": [{"Compound": "SOFT", "TotalLaps": 18},
                                                       {"Compound": g[6], "TotalLaps": tyre_age[g[0]]}]}
@@ -90,6 +109,7 @@ def main():
     while lap < total:
         tick += 1
         delta_lines = {}
+        stats_delta = {}
         # zmiany odstępów
         for num in order[1:]:
             drift = random.uniform(-0.15, 0.45) if tick > 42 else random.uniform(-0.25, 0.3)
@@ -138,9 +158,18 @@ def main():
                     best[num] = lt
                     d["BestLapTime"] = {"Value": fmt_lap(lt)}
                 d["LastLapTime"] = {"Value": fmt_lap(lt), "PersonalFastest": pb}
+                secs = split_sectors(lt)
+                d["Sectors"] = {str(k): {"Value": fmt_sector(v)} for k, v in enumerate(secs)}
+                improved = {str(k): {"Value": fmt_sector(v)} for k, v in enumerate(secs) if v < best_sec[num][k]}
+                for k, v in enumerate(secs):
+                    best_sec[num][k] = min(best_sec[num][k], v)
+                if improved:
+                    stats_delta[num] = {"BestSectors": improved}
                 d["NumberOfLaps"] = lap
             lines[num].update({k: v for k, v in d.items() if k in ("Retired",)})
         emit("feed", ["TimingData", {"Lines": delta_lines}], 2.0)
+        if stats_delta:
+            emit("feed", ["TimingStats", {"Lines": stats_delta}])
         if new_lap:
             emit("feed", ["TimingAppData", {"Lines": {n: {"Stints": {"1": {"TotalLaps": tyre_age[n] + tick // 3}}}
                                                        for n in order if n != "50"}}])

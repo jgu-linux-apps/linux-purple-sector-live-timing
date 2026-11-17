@@ -273,7 +273,29 @@ export class SessionState {
         }
         if (fastest)
             fastest.r.fastest = true;
+        snap.bestSectors = this._bestSectors(snap.rows, lines);
         return snap;
+    }
+
+    /**
+     * Fastest time in each of the three sectors: [{tla, colour, time}|null, ...].
+     * TimingStats keeps every driver's best sector for the whole session; the
+     * current lap's sectors in TimingData fill in while it has not arrived yet.
+     */
+    _bestSectors(rows, lines) {
+        const stats = isObject(this.topics.TimingStats?.Lines) ? this.topics.TimingStats.Lines : {};
+        const best = [null, null, null];
+        for (const r of rows) {
+            for (let i = 0; i < 3; i++) {
+                for (const text of [value(item(stats[r.number]?.BestSectors, i)),
+                    value(item(lines[r.number]?.Sectors, i))]) {
+                    const s = lapSeconds(text);
+                    if (s && (!best[i] || s < best[i].s))
+                        best[i] = {s, tla: r.tla, colour: r.colour, time: String(text)};
+                }
+            }
+        }
+        return best.map(b => b && {tla: b.tla, colour: b.colour, time: b.time});
     }
 
     _markChequered(rows, totalLaps) {

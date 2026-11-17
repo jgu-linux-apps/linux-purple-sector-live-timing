@@ -53,9 +53,10 @@
 
 .psl-pos { width: 22px; font-family: monospace; font-size: 0.9em; }
 .psl-driver { spacing: 8px; }
+.psl-tags { spacing: 8px; }
 .psl-flag { icon-size: 13px; }
 .psl-bar { width: 3px; height: 14px; border-radius: 2px; }
-.psl-tla { font-weight: bold; width: 36px; }
+.psl-tla { font-weight: bold; width: 48px; }
 .psl-name { width: 150px; font-size: 0.9em; }
 .psl-c1 { width: 82px; font-family: monospace; font-size: 0.9em; }
 .psl-c2 { width: 74px; font-family: monospace; font-size: 0.9em; }
@@ -97,6 +98,14 @@
 .psl-light .psl-divider.out { color: #5e626b; }
 .psl-dark .psl-divider.out .psl-divider-line { background-color: #4a4d55; }
 .psl-light .psl-divider.out .psl-divider-line { background-color: #c9cbd1; }
+
+.psl-sectors { padding: 6px 16px 0 16px; spacing: 3px; font-size: 0.8em; }
+.psl-sectors-title { font-size: 0.9em; }
+.psl-sector-ideal { padding-left: 6px; }
+.psl-sector-row { spacing: 10px; }
+.psl-sector { spacing: 5px; }
+.psl-sector-tla { font-weight: bold; }
+.psl-sector-time { font-family: monospace; }
 
 .psl-legend { padding: 6px 16px 2px 16px; spacing: 6px; font-size: 0.72em; }
 

@@ -2,7 +2,7 @@
 
 GNOME Shell extension that shows live motorsport session results in the top bar: practice, qualifying, sprint and race.
 
-**Version 1.0.9** (2026-11-14)
+**Version 1.0.10** (2026-11-17)
 
 Part of **JGu Linux Apps**. Unofficial project, not affiliated with any racing series or its organisers.
 
@@ -16,6 +16,7 @@ Part of **JGu Linux Apps**. Unofficial project, not affiliated with any racing s
 - **Menu:**
   - full classification with team colours; best time in purple, retired or knocked-out drivers dimmed, PIT tag,
   - **qualifying sections:** elimination zone (Q1/Q2), knocked out in Q2, knocked out in Q1, each showing the time from the segment the driver was knocked out in,
+  - **fastest sectors:** who holds the best S1, S2 and S3 of the session, plus the ideal lap,
   - **expandable table** with names, position change, tyre and tyre age, last and best lap, and pit stops (Q1/Q2/Q3 times in qualifying),
   - scrolls when it doesn't fit the screen, follows the system light/dark style; optional **Aurora** style
     (the shared look of the JGu Linux Apps series).
@@ -85,6 +86,7 @@ python3 tools/fake_feed_server.py            # local stand-in feed for testing (
 
 ## Version history
 
+- **1.0.10** (2026-11-17): **fastest sectors** row in the menu: the driver with the best S1, S2 and S3 of the session (team colour and time to the thousandth) and the ideal lap, the sum of the three. The built-in demo race now has sector times. The open menu no longer stutters the mouse pointer: the table is built once and live updates only change its text and colours (about 0.7 ms instead of 40 ms per update). Three-letter driver codes with wide letters (KOW, MOR) are no longer cut to "K…".
 - **1.0.9** (2026-11-14): new dark-mode app icon in the series style: the app's own symbol on a deep navy tile, the same as the other apps of the series (used in notifications and settings).
 - **1.0.7** (2026-11-14): the Aurora menu style has a thin border instead of a wide glow; the menu has **Refresh** (fetches the calendar again and reconnects for a fresh classification) and **Quit** (switches the extension off, like the switch in the Extensions app; switch it on there again). After a package update the menu shows **Version X installed – log out to load it**: GNOME Shell keeps the old code in memory until the next login.
 - **1.0.5** (2026-11-14): new **Aurora** menu style (Settings → Appearance → Menu style), the shared look of the JGu Linux Apps series: lavender / deep navy card, violet-to-cyan switches, light or dark following the system. Timing colours (purple fastest sector, green, red) are unchanged.

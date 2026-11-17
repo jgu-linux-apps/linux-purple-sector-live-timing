@@ -437,3 +437,9 @@ msgstr ""
 #: lib/indicator.js
 msgid "Quit"
 msgstr ""
+
+msgid "Fastest sectors"
+msgstr ""
+
+msgid "Ideal lap"
+msgstr ""

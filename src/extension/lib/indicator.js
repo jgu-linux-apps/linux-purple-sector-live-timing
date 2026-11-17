@@ -5,6 +5,7 @@ import Clutter from 'gi://Clutter';
 import Gio from 'gi://Gio';
 import GLib from 'gi://GLib';
 import GObject from 'gi://GObject';
+import Pango from 'gi://Pango';
 import St from 'gi://St';
 
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
@@ -37,6 +38,29 @@ function label(text, styleClass = '', params = {}) {
     });
 }
 
+// Write only when the value differs: every St write queues a relayout or a restyle,
+// and the shell paints the pointer on the same thread.
+function setText(actor, text) {
+    text = text == null ? '' : String(text);
+    if (actor.text !== text)
+        actor.text = text;
+}
+
+function setClass(actor, styleClass) {
+    if (actor.style_class !== styleClass)
+        actor.style_class = styleClass;
+}
+
+function setStyle(actor, style) {
+    if (actor.style !== style)
+        actor.style = style;
+}
+
+function setVisible(actor, visible) {
+    if (actor.visible !== visible)
+        actor.visible = visible;
+}
+
 function colourStyle(colour) {
     const c = /^#[0-9a-fA-F]{6}$/.test(colour ?? '') ? colour : '#888888';
     return `background-color: ${c};`;
@@ -53,6 +77,8 @@ class Indicator extends PanelMenu.Button {
         this._model = null;
         this._modelKey = '';
         this._renderedKey = '';
+        this._layoutKey = '';
+        this._ui = null;
         this._newVersion = '';
 
         this._buildPanel();
@@ -63,7 +89,8 @@ class Indicator extends PanelMenu.Button {
         this.menu.connect('open-state-changed', (_menu, open) => {
             if (open) {
                 this._checkInstalledVersion();
-                this._renderMenu(true);
+                this._renderedKey = '';
+                this._renderMenu();
             }
         });
 
@@ -172,7 +199,7 @@ class Indicator extends PanelMenu.Button {
         this._model = model;
         this._renderPanel();
         if (this.menu.isOpen)
-            this._renderMenu(false);
+            this._renderMenu();
     }
 
     // ------------------------------------------------------------- panel
@@ -194,37 +221,66 @@ class Indicator extends PanelMenu.Button {
         const items = m.mode === 'session' ? m.panel.items : [];
         this._items.forEach((w, i) => {
             const it = items[i];
-            w.item.visible = !!it;
+            setVisible(w.item, !!it);
             if (!it)
                 return;
-            w.pos.text = String(it.pos);
-            w.bar.style = colourStyle(it.colour);
-            w.tla.text = it.tla;
-            w.value.text = it.value;
-            w.value.visible = !!it.value;
-            w.flag.visible = it.chequered;
+            setText(w.pos, String(it.pos));
+            setStyle(w.bar, colourStyle(it.colour));
+            setText(w.tla, it.tla);
+            setText(w.value, it.value);
+            setVisible(w.value, !!it.value);
+            setVisible(w.flag, !!it.chequered);
         });
         const chip = m.mode === 'session' ? m.panel.chip : null;
-        this._chip.visible = !!chip;
+        setVisible(this._chip, !!chip);
         if (chip) {
-            this._chip.text = chip.text;
-            this._chip.style_class = `psl-panel-chip chip-${chip.kind}`;
+            setText(this._chip, chip.text);
+            setClass(this._chip, `psl-panel-chip chip-${chip.kind}`);
         }
         const showIdle = m.mode === 'idle' && m.settings.panelDrivers > 0 &&
             this._settings.get_boolean('show-next-session');
-        this._idle.text = showIdle ? m.idleText : '';
-        this._idle.visible = showIdle && !!m.idleText;
+        setText(this._idle, showIdle ? m.idleText : '');
+        setVisible(this._idle, showIdle && !!m.idleText);
     }
 
     // ------------------------------------------------------------- menu
-    _renderMenu(force) {
-        if (!force && this._renderedKey === this._modelKey)
+    /**
+     * Everything that decides which widgets the menu has. Data that only changes text,
+     * colours or classes (times, gaps, positions) stays out of it.
+     */
+    _menuLayout(m) {
+        const shape = {
+            mode: m.mode, dark: m.dark, expanded: m.expanded, settings: m.settings,
+            theme: this._settings.get_string('theme'), replay: m.replay, newVersion: this._newVersion,
+        };
+        if (m.mode === 'session') {
+            Object.assign(shape, {
+                kind: m.kind, live: m.live, columns: m.columns,
+                sections: m.sections.map(sec => [sec.title, sec.style,
+                    sec.rows.map(r => r.ext.map(c => (c.tyre ? 't' : c.narrow ? 'n' : 'x')).join(''))]),
+                sectors: m.sectors ? !!m.sectors.ideal : null,
+            });
+        } else {
+            shape.idleText = m.idleText;
+        }
+        return JSON.stringify(shape);
+    }
+
+    _renderMenu() {
+        if (this._renderedKey === this._modelKey)
             return;
         this._renderedKey = this._modelKey;
         const m = this._model;
+        const layout = this._menuLayout(m);
+        if (this._ui && layout === this._layoutKey) {
+            this._patchSession(m);
+            return;
+        }
+        this._layoutKey = layout;
+        this._ui = null;
         this._root.destroy_all_children();
         const aurora = this._settings.get_string('theme') === 'aurora' ? ' psl-aurora' : '';
-        this._root.style_class = `psl-popup ${m.dark ? 'psl-dark' : 'psl-light'}${aurora}${m.expanded ? ' expanded' : ''}`;
+        this._root.style_class = `psl-popup ${m.dark ? 'psl-dark' : 'psl-light'}${aurora}${m.expanded && m.mode === 'session' ? ' expanded' : ''}`;
 
         if (m.mode === 'session')
             this._renderSession(m);
@@ -316,17 +372,21 @@ class Indicator extends PanelMenu.Button {
     }
 
     _renderSession(m) {
+        const ui = {rows: [], sectors: null};
         const head = box(true, {style_class: 'psl-head'});
         const top = box(false);
-        top.add_child(label(m.title, 'psl-title', {x_expand: true}));
+        ui.title = label('', 'psl-title', {x_expand: true});
+        top.add_child(ui.title);
         if (m.replay)
             top.add_child(label(_('DEMO'), 'psl-live'));
         else if (m.live)
             top.add_child(label(`● ${_('LIVE')}`, 'psl-live'));
         head.add_child(top);
         const sub = box(false, {style_class: 'psl-subrow'});
-        sub.add_child(label(m.track.text, `psl-chip chip-${m.track.kind}`));
-        sub.add_child(label(m.info, 'psl-info psl-muted'));
+        ui.chip = label('', 'psl-chip');
+        ui.info = label('', 'psl-info psl-muted');
+        sub.add_child(ui.chip);
+        sub.add_child(ui.info);
         head.add_child(sub);
         this._root.add_child(head);
         this._root.add_child(this._separator());
@@ -347,12 +407,14 @@ class Indicator extends PanelMenu.Button {
         this._root.add_child(cols);
 
         const list = box(true);
-        let n = 0;
         for (const section of m.sections) {
             if (section.title)
                 list.add_child(this._divider(section.title, section.style));
-            for (const r of section.rows)
-                list.add_child(this._row(r, section.style, n++, m.expanded));
+            for (const r of section.rows) {
+                const row = this._makeRow(r, m.expanded);
+                ui.rows.push(row);
+                list.add_child(row.actor);
+            }
         }
         const scroll = new St.ScrollView({
             hscrollbar_policy: St.PolicyType.NEVER,
@@ -366,6 +428,11 @@ class Indicator extends PanelMenu.Button {
         scroll.style = `max-height: ${maxHeight}px;`;
         this._root.add_child(scroll);
 
+        if (m.sectors) {
+            ui.sectors = this._makeSectors(m.sectors);
+            this._root.add_child(ui.sectors.actor);
+        }
+
         const legend = box(false, {style_class: 'psl-legend psl-muted'});
         legend.add_child(label('■', 'purple'));
         legend.add_child(label(m.kind === 'race' ? _('fastest lap') : _('best time'), 'psl-muted'));
@@ -373,8 +440,74 @@ class Indicator extends PanelMenu.Button {
             legend.add_child(label('■', 'green'));
             legend.add_child(label(_('personal best'), 'psl-muted'));
         }
-        legend.add_child(label(m.footer, 'psl-muted', {x_expand: true, x_align: Clutter.ActorAlign.END}));
+        ui.footer = label('', 'psl-muted', {x_expand: true, x_align: Clutter.ActorAlign.END});
+        legend.add_child(ui.footer);
         this._root.add_child(legend);
+
+        this._ui = ui;
+        this._patchSession(m);
+    }
+
+    /** Puts the model's data into the widgets built by _renderSession (same layout). */
+    _patchSession(m) {
+        const ui = this._ui;
+        setText(ui.title, m.title);
+        setText(ui.chip, m.track.text);
+        setClass(ui.chip, `psl-chip chip-${m.track.kind}`);
+        setText(ui.info, m.info);
+        let n = 0;
+        for (const section of m.sections) {
+            for (const r of section.rows) {
+                this._patchRow(ui.rows[n], r, section.style, n, m.expanded);
+                n++;
+            }
+        }
+        if (ui.sectors)
+            this._patchSectors(ui.sectors, m.sectors);
+        setText(ui.footer, m.footer);
+    }
+
+    _makeSectors(sectors) {
+        const w = {cells: []};
+        w.actor = box(true, {style_class: 'psl-sectors'});
+        const head = box(false);
+        head.add_child(label(_('Fastest sectors').toUpperCase(), 'psl-muted psl-sectors-title', {x_expand: true}));
+        if (sectors.ideal) {
+            head.add_child(label(_('Ideal lap'), 'psl-muted psl-sectors-title'));
+            w.ideal = label('', 'psl-sector-time psl-sector-ideal');
+            head.add_child(w.ideal);
+        }
+        w.actor.add_child(head);
+        const row = box(false, {style_class: 'psl-sector-row'});
+        for (const s of sectors.items) {
+            const cell = box(false, {style_class: 'psl-sector', x_expand: true});
+            const c = {
+                bar: new St.Widget({style_class: 'psl-bar', y_align: Clutter.ActorAlign.CENTER}),
+                tla: label('', 'psl-sector-tla'),
+                time: label('', 'psl-sector-time purple'),
+            };
+            cell.add_child(label(s.name, 'psl-muted'));
+            cell.add_child(c.bar);
+            cell.add_child(c.tla);
+            cell.add_child(c.time);
+            row.add_child(cell);
+            w.cells.push(c);
+        }
+        w.actor.add_child(row);
+        return w;
+    }
+
+    _patchSectors(w, sectors) {
+        if (w.ideal)
+            setText(w.ideal, sectors.ideal);
+        sectors.items.forEach((s, i) => {
+            const c = w.cells[i];
+            if (!c)
+                return;
+            setStyle(c.bar, colourStyle(s.colour));
+            setText(c.tla, s.tla);
+            setText(c.time, s.time);
+        });
     }
 
     _flagIcon(styleClass) {
@@ -402,16 +535,54 @@ class Indicator extends PanelMenu.Button {
         return d;
     }
 
-    _tyreCell(tyre) {
-        const cell = box(false, {style_class: 'psl-tyrecell'});
-        if (tyre.text) {
-            cell.add_child(label(tyre.text, `psl-tyre ${tyre.style}`));
-            cell.add_child(label(tyre.age, 'psl-muted'));
+    /** Widgets of one table row; the ext cells follow the row's shape (part of the layout key). */
+    _makeRow(r, expanded) {
+        const w = {tagsKey: '', ext: []};
+        w.actor = box(false, {style_class: 'psl-row'});
+        w.pos = label('', 'psl-pos psl-muted');
+        w.actor.add_child(w.pos);
+        const driver = box(false, {x_expand: true, style_class: 'psl-driver'});
+        w.bar = new St.Widget({style_class: 'psl-bar', y_align: Clutter.ActorAlign.CENTER});
+        driver.add_child(w.bar);
+        w.tla = label('', 'psl-tla');
+        // A driver code is never shortened: wide bold letters (W, M) must not turn into "K…".
+        w.tla.clutter_text.ellipsize = Pango.EllipsizeMode.NONE;
+        driver.add_child(w.tla);
+        w.flag = this._flagIcon('psl-flag');
+        w.flag.visible = false;
+        driver.add_child(w.flag);
+        if (expanded) {
+            w.name = label('', 'psl-name psl-muted');
+            driver.add_child(w.name);
         }
-        return cell;
+        w.tags = box(false, {style_class: 'psl-tags', visible: false});
+        driver.add_child(w.tags);
+        w.actor.add_child(driver);
+        w.c1 = label('', 'psl-c1');
+        w.c2 = label('', 'psl-c2 psl-muted');
+        w.actor.add_child(w.c1);
+        w.actor.add_child(w.c2);
+        if (expanded) {
+            for (const cell of r.ext) {
+                if (cell.tyre) {
+                    const actor = box(false, {style_class: 'psl-tyrecell'});
+                    const tyre = label('', 'psl-tyre', {visible: false});
+                    const age = label('', 'psl-muted', {visible: false});
+                    actor.add_child(tyre);
+                    actor.add_child(age);
+                    w.actor.add_child(actor);
+                    w.ext.push({tyre, age});
+                } else {
+                    const text = label('', 'psl-ext');
+                    w.actor.add_child(text);
+                    w.ext.push({text});
+                }
+            }
+        }
+        return w;
     }
 
-    _row(r, sectionStyle, index, expanded) {
+    _patchRow(w, r, sectionStyle, index, expanded) {
         let cls = 'psl-row';
         if (sectionStyle === 'danger')
             cls += ' danger';
@@ -419,30 +590,38 @@ class Indicator extends PanelMenu.Button {
             cls += ' alt';
         if (r.dim)
             cls += ' dim';
-        const row = box(false, {style_class: cls});
-        row.add_child(label(String(r.pos), 'psl-pos psl-muted'));
-        const driver = box(false, {x_expand: true, style_class: 'psl-driver'});
-        driver.add_child(new St.Widget({style_class: 'psl-bar', style: colourStyle(r.colour),
-            y_align: Clutter.ActorAlign.CENTER}));
-        driver.add_child(label(r.tla, 'psl-tla'));
-        if (r.chequered)
-            driver.add_child(this._flagIcon('psl-flag'));
-        if (expanded)
-            driver.add_child(label(r.name, 'psl-name psl-muted'));
-        for (const tag of r.tags)
-            driver.add_child(label(tag.text, `psl-tag ${tag.style}`));
-        row.add_child(driver);
-        row.add_child(label(r.c1, `psl-c1 ${r.c1Style}`));
-        row.add_child(label(r.c2, 'psl-c2 psl-muted'));
-        if (expanded) {
-            for (const cell of r.ext) {
-                if (cell.tyre)
-                    row.add_child(this._tyreCell(cell.tyre));
-                else
-                    row.add_child(label(cell.text, `psl-ext${cell.narrow ? ' narrow' : ''} ${cell.style}`));
-            }
+        setClass(w.actor, cls);
+        setText(w.pos, String(r.pos));
+        setStyle(w.bar, colourStyle(r.colour));
+        setText(w.tla, r.tla);
+        setVisible(w.flag, !!r.chequered);
+        if (w.name)
+            setText(w.name, r.name);
+        const tagsKey = r.tags.map(t => `${t.style}\u0001${t.text}`).join('\u0002');
+        if (tagsKey !== w.tagsKey) {
+            w.tagsKey = tagsKey;
+            w.tags.destroy_all_children();
+            for (const tag of r.tags)
+                w.tags.add_child(label(tag.text, `psl-tag ${tag.style}`));
+            setVisible(w.tags, r.tags.length > 0);
         }
-        return row;
+        setText(w.c1, r.c1);
+        setClass(w.c1, `psl-c1 ${r.c1Style}`);
+        setText(w.c2, r.c2);
+        w.ext.forEach((c, i) => {
+            const cell = r.ext[i] ?? {};
+            if (c.tyre) {
+                const tyre = cell.tyre ?? {};
+                setText(c.tyre, tyre.text);
+                setClass(c.tyre, `psl-tyre ${tyre.style ?? ''}`);
+                setVisible(c.tyre, !!tyre.text);
+                setText(c.age, tyre.text ? tyre.age : '');
+                setVisible(c.age, !!tyre.text);
+            } else {
+                setText(c.text, cell.text);
+                setClass(c.text, `psl-ext${cell.narrow ? ' narrow' : ''} ${cell.style ?? ''}`);
+            }
+        });
     }
 
     _segmented(options, current, onPick) {
